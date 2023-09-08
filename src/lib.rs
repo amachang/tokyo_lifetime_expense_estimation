@@ -86,38 +86,116 @@ impl Person {
 }
 
 pub struct Car {
+    pub start_year: u16, // include
+    pub end_year: u16, // not include
+    pub annual_car_type_tax: u32, // 自動車（種別割）税の年割
+    pub annual_weight_tax: u32, // 自動車重量税
+    pub annual_liability_insurance_fee: u32, // 自賠責の年割
+    pub annual_optional_insurance_fee: u32, // 任意保険の年割
+    pub annual_inspection_fee: u32, // 車検代の年割
+    pub annual_gas_expense: u32, // 年間のガソリン代
+    pub annual_consumables_expense: u32, // 年間の消耗品
+    pub down_payment: u32,
+    pub loan: Option<YearlyLoan>,
 }
 
-pub struct CarExpenseStatus {
-}
-
-impl CarExpenseStatus {
-    pub fn new(_cars: Vec<Car>, _start_year: u16) -> Self {
-        // TODO not implemented yet
-        Self { }
-    }
-
-    pub fn next(&mut self) -> u32 {
-        // TODO not implemented yet
-        0
+impl Car {
+    pub fn estimate_expense(&self, year: u16) -> u32 {
+        let mut expense = 0;
+        if self.start_year <= year && year < self.end_year {
+            // いわゆる維持費
+            expense += self.annual_car_type_tax + 
+                self.annual_weight_tax + 
+                self.annual_liability_insurance_fee + 
+                self.annual_optional_insurance_fee + 
+                self.annual_inspection_fee + 
+                self.annual_gas_expense + 
+                self.annual_consumables_expense;
+        };
+        if self.start_year == year {
+            // 初期費
+            expense += self.down_payment;
+        };
+        if let Some(loan) = &self.loan {
+            // ローンの支払い
+            if self.start_year <= year && year < (self.start_year + loan.payment_years) {
+                expense += loan.calcurate_yearly_payment();
+            }
+        };
+        expense
     }
 }
 
 pub struct House {
+    pub start_year: u16, // include
+    pub end_year: u16, // not include
+    pub moving_expense: u32,
+    pub kind: HouseKind,
 }
 
-pub struct HouseExpenseStatus {
+pub enum HouseKind {
+    Rental {
+        rent: u32,
+    },
+    Own {
+        down_payment: u32,
+        loan: Option<YearlyLoan>,
+    },
 }
 
-impl HouseExpenseStatus {
-    pub fn new(_houses: Vec<House>, _start_year: u16) -> Self {
-        // TODO not implemented yet
-        Self { }
+impl House {
+    pub fn estimate_expense(&self, year: u16) -> u32 {
+        let mut expense = 0;
+        if self.start_year == year {
+            expense += self.moving_expense;
+        }
+        match &self.kind {
+            HouseKind::Rental { rent } => {
+                if self.start_year <= year && year < self.end_year {
+                    if self.start_year == year {
+                        expense += rent * 2; // 敷金礼金
+                    } else {
+                        let residence_years = year - self.start_year;
+                        if residence_years % 2 == 0 {
+                            expense += rent; // 契約更新料
+                        };
+                    };
+                    expense += rent * 12; // 家賃
+                };
+            },
+            HouseKind::Own { down_payment, loan } => {
+                if self.start_year == year {
+                    // 初期費
+                    expense += down_payment;
+                };
+                if let Some(loan) = loan {
+                    if self.start_year <= year && year < (self.start_year + loan.payment_years) {
+                        expense += loan.calcurate_yearly_payment();
+                    }
+                };
+            },
+        }
+        expense
+    }
+}
+
+pub struct YearlyLoan {
+    pub interest_rate: f64,
+    pub payment_years: u16,
+    pub amount: u32,
+}
+
+impl YearlyLoan {
+    fn calcurate_monthly_payment(&self) -> u32 {
+        let interest_rate = self.interest_rate / 12.0;
+        let months = self.payment_years * 12;
+        let pvif = (interest_rate + 1.0).powf(months as f64);
+        let payment = interest_rate / (pvif - 1.0) * -(self.amount as f64 * pvif);
+        (-payment) as u32
     }
 
-    pub fn next(&mut self) -> u32 {
-        // TODO not implemented yet
-        0
+    pub fn calcurate_yearly_payment(&self) -> u32 {
+        self.calcurate_monthly_payment() * 12
     }
 }
 
@@ -489,12 +567,9 @@ pub struct PersonExpense {
 pub fn estimate_family_expenses(people: Vec<Person>, cars: Vec<Car>, houses: Vec<House>, start_year: u16, years: u8) -> Vec<FamilyExpense> {
     let mut expenses = Vec::new();
 
-    let mut car_expense_status = CarExpenseStatus::new(cars, start_year);
-    let mut house_expense_status = HouseExpenseStatus::new(houses, start_year);
-
     for year in start_year..(start_year + years as u16) {
-        let car_expense = car_expense_status.next();
-        let house_expense = house_expense_status.next();
+        let car_expense = cars.iter().map(|car| car.estimate_expense(year)).fold(0, |sum, e| sum + e);
+        let house_expense = houses.iter().map(|house| house.estimate_expense(year)).fold(0, |sum, e| sum + e);
 
         // per family expense
         let base_food_expense = BASE_FOOD_EXPENSE;
@@ -620,5 +695,4 @@ pub fn estimate_family_expenses(people: Vec<Person>, cars: Vec<Car>, houses: Vec
 
     expenses
 }
-
 
